@@ -1,7 +1,7 @@
 ---
 title: "Human Activity Recognition Prediction"
 author: "Nancy Irisarri"
-date: "December 7, 2017"
+date: "December 15, 2017"
 output: html_document
 ---
 
@@ -10,14 +10,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Introduction
-
-In this assignment, the 
+In this assignment, data from the [Human Activity Recognition](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) is used in machine learning using a random forest model. The model is derived from a training set, which is further split into two subsets used for training and for k-fold cross validation. Then the model is applied to a test set of 20 samples and correctly predicts the outcome variable.
 
 ## Getting and Cleaning Data
+First, the necessary libraries for the assignment are loaded and a seed is set for reproducibility.
 
-First, the necessary libraries for the assignment are loaded.
-
-```{r echo=FALSE}
+```{r, message=FALSE}
 library(caret)
 library(rattle)
 library(dplyr)
@@ -27,7 +25,7 @@ library(pryr)
 set.seed(1235)
 ```
 
-The data is loaded and some exploratory analysis is done by looking at the dimensions of the data and at the first few lines. From the output of *head()* it can be seen that some columns are empty and some contain only *NA* values; these are discarded. Since the columns in the training and testing datasets must match, the lines with a *new_window* column value of *yes* are also discarded from the training dataset. Only columns that contain the words *arm*, *belt*, *dumbbell*, *forearm* as well as the outcome *classe* column are kept. Columns that are factors are converted to numerical values. The clean training dataset has 19216 rows and 53 columns, while the clean testing dataset has 20 rows and 52 columns.
+The data is loaded and some exploratory analysis is done by looking at the dimensions of the data. 
 
 ```{r }
 training <- read.csv("pml-training.csv", na.strings=c("NA"))
@@ -35,10 +33,18 @@ testing <- read.csv("pml-testing.csv", na.strings=c("NA"))
 
 dim(training)
 dim(testing)
+```
 
+From the output of *head()* it can be seen that some columns are empty and some contain only *NA* values; these are discarded. 
+
+```{r}
 head(training[, 1:25])
 head(testing[, 1:20])
+```
 
+Since the columns in the training and testing datasets must match, the lines with a *new_window* column value of *yes* are also discarded from the training dataset. Only columns that contain the words *arm*, *belt*, *dumbbell*, *forearm* as well as the outcome *classe* column are kept. Columns that are factors are converted to numerical values.
+
+```{r}
 # To match columns that are also in testing, keep rows where new_window is no.
 trainingClean <- filter(training, new_window == levels(training$new_window)[1])
 
@@ -66,7 +72,11 @@ trainingClean <- trainingClean[indx]
 
 # Keep columns that match from the testing dataset.
 testingSubset <- testing[, colnames(testing) %in% colnames(trainingClean)]
+```
 
+The clean training dataset has 19216 rows and 53 columns, while the clean testing dataset has 20 rows and 52 columns.
+
+```{r}
 dim(trainingClean)
 dim(testingSubset)
 ```
@@ -85,7 +95,7 @@ dim(validationSubset)
 
 The random forest model is resource-intensive, so to improve running time we follow [Leonard Greski's post](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md) on *Improving Performance of Random Forest in caret::train()*. A cluster of R copies is made based on the number of CPU cores and is registered. A k-fold cross-validation method is set to not repeat with 5 subsamples. This is then passed in the *train()* function. The accuracy of the final model is 99%.
 
-```{r}
+```{r cache=TRUE}
 registerDoParallel(makeCluster(detectCores() - 1))
 
 fitControl <- trainControl(method="cv", number=5, allowParallel=TRUE)
@@ -95,18 +105,21 @@ modelFitRf <- train(classe ~ ., data=trainingSubset, method="rf", trControl=fitC
 modelFitRf
 ```
 
-## Expected Accuracy
-For the expected out-of-sample error, the model is applied to the validation subset and the estimated error is *1 - accuracy* with a value of 1%.
+## Out-of-sample Error
+For the expected out-of-sample error, the model is applied to the validation subset. Using the accuracy, the error is estimated as *1 - accuracy* with a rounded value of 1%.
 
 ```{r}
 covalidation <- predict(modelFitRf, validationSubset)
 1 - confusionMatrix(validationSubset$classe, covalidation)$overall[1]
 ```
 
-## Predict new data
+## Predict New Data
 Finally, the model is applied to the testing data. With this result, all of the questions in the quiz are answered correctly.
 
 ```{r}
 predictionRf <- predict(modelFitRf, newdata=testingSubset)
 predictionRf
 ```
+
+## Conclusion
+The downloaded dataset was cleaned and split into training, cross validation, and testing sets. Since there is a large amount of possible predictors and this is a classification problem with 5 classes, a random forest model is chosen. The final model has an accuracy of 99%, estimated out-of-sample error of 1%, and is able to predict correctly the class for 20 samples of test data.
