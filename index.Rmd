@@ -1,0 +1,112 @@
+---
+title: "Human Activity Recognition Prediction"
+author: "Nancy Irisarri"
+date: "December 7, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+In this assignment, the 
+
+## Getting and Cleaning Data
+
+First, the necessary libraries for the assignment are loaded.
+
+```{r echo=FALSE}
+library(caret)
+library(rattle)
+library(dplyr)
+library(parallel)
+library(doParallel)
+library(pryr)
+set.seed(1235)
+```
+
+The data is loaded and some exploratory analysis is done by looking at the dimensions of the data and at the first few lines. From the output of *head()* it can be seen that some columns are empty and some contain only *NA* values; these are discarded. Since the columns in the training and testing datasets must match, the lines with a *new_window* column value of *yes* are also discarded from the training dataset. Only columns that contain the words *arm*, *belt*, *dumbbell*, *forearm* as well as the outcome *classe* column are kept. Columns that are factors are converted to numerical values. The clean training dataset has 19216 rows and 53 columns, while the clean testing dataset has 20 rows and 52 columns.
+
+```{r }
+training <- read.csv("pml-training.csv", na.strings=c("NA"))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA"))
+
+dim(training)
+dim(testing)
+
+head(training[, 1:25])
+head(testing[, 1:20])
+
+# To match columns that are also in testing, keep rows where new_window is no.
+trainingClean <- filter(training, new_window == levels(training$new_window)[1])
+
+# Remove zero covariates.
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+trainingClean <- trainingClean[!nsv$nzv]
+
+# Keep only relevant columns.
+columnsSubset <- intersect(grep("arm", colnames(trainingClean)), grep("forearm", colnames(trainingClean), invert=TRUE))
+columnsSubset <- union(columnsSubset, grep("belt", colnames(trainingClean)))
+columnsSubset <- union(columnsSubset, grep("dumbbell", colnames(trainingClean)))
+columnsSubset <- union(columnsSubset, grep("forearm", colnames(trainingClean)))
+columnsSubset <- union(columnsSubset, grep("classe", colnames(trainingClean)))
+trainingClean <- trainingClean[, columnsSubset]
+
+# Convert factors to numerical values except for classe that is converted to character.
+indx <- sapply(trainingClean[-94], is.factor)
+trainingClean[indx] <- lapply(trainingClean[indx], function(x) as.numeric(as.character(x)))
+trainingClean$classe <- as.character(trainingClean$classe)
+
+# Remove columns with all NAs.
+notAllNas <- function(x) { !all(is.na(x)) }
+indx <- sapply(trainingClean, notAllNas)
+trainingClean <- trainingClean[indx]
+
+# Keep columns that match from the testing dataset.
+testingSubset <- testing[, colnames(testing) %in% colnames(trainingClean)]
+
+dim(trainingClean)
+dim(testingSubset)
+```
+
+## Machine Learning Model
+Since we want to use cross validation and be able to calculate the out-of-sample error, we prepare a validation subset.
+
+```{r}
+inTrain <- createDataPartition(y=trainingClean$classe, p=0.6, list=FALSE)
+trainingSubset <- trainingClean[inTrain,]
+validationSubset <- trainingClean[-inTrain,]
+
+dim(trainingSubset)
+dim(validationSubset)
+```
+
+The random forest model is resource-intensive, so to improve running time we follow [Leonard Greski's post](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md) on *Improving Performance of Random Forest in caret::train()*. A cluster of R copies is made based on the number of CPU cores and is registered. A k-fold cross-validation method is set to not repeat with 5 subsamples. This is then passed in the *train()* function. The accuracy of the final model is 99%.
+
+```{r}
+registerDoParallel(makeCluster(detectCores() - 1))
+
+fitControl <- trainControl(method="cv", number=5, allowParallel=TRUE)
+
+modelFitRf <- train(classe ~ ., data=trainingSubset, method="rf", trControl=fitControl)
+
+modelFitRf
+```
+
+## Expected Accuracy
+For the expected out-of-sample error, the model is applied to the validation subset and the estimated error is *1 - accuracy* with a value of 1%.
+
+```{r}
+covalidation <- predict(modelFitRf, validationSubset)
+1 - confusionMatrix(validationSubset$classe, covalidation)$overall[1]
+```
+
+## Predict new data
+Finally, the model is applied to the testing data. With this result, all of the questions in the quiz are answered correctly.
+
+```{r}
+predictionRf <- predict(modelFitRf, newdata=testingSubset)
+predictionRf
+```
